@@ -19,6 +19,11 @@ opus: echte Unsicherheit oder Tragweite. Architektur, Konzepte, Debugging mit un
 Ist die Aufgabe nur eine Zustimmung oder Rueckfrage ("ja", "mach das"), stufe die Arbeit ein, auf die sie sich bezieht.
 Im Zweifel die staerkere Stufe.`
 
+// Opus behaelt die Fuehrung, gibt aber reine Lesearbeit an Subagenten ab; die stuft der Router guenstiger ein
+const DELEGATE = `Modell-Router: Du laeufst auf dem staerksten Modell und behaeltst Planung, Abwaegung und Entscheidungen.
+Reine Lesearbeit fuehrst du nicht selbst aus, sondern gibst sie an einen Subagenten (Agent-Tool) ab: ein Jira-Ticket, eine Confluence-Seite oder ein Dokument lesen, Code und Dateien durchsuchen, Logs sichten. Der Router setzt solche Subagenten automatisch auf ein guenstigeres Modell.
+Bitte den Subagenten um eine knappe Zusammenfassung mit allem, was du fuer deine Entscheidung brauchst. Einzelne kurze Befehle wie git status fuehrst du selbst aus.`
+
 // Fragt das Klassifikator-Modell nach der Stufe; undefined heisst: nicht umleiten
 export const classify = async (
   $: EngineInterface,
@@ -67,6 +72,14 @@ export const register: Register = (on, options) => {
       argumentHint: '[on|off]',
     })
     return next(e)
+  })
+
+  // Nur Anfragen an Opus (oder staerker), die Subagenten starten koennen, bekommen den Hinweis
+  on('prompt.compose', async ($, e, next) => {
+    const r = await next(e)
+    if (rank(e.model) < TIERS.indexOf('opus') || !e.tools.includes('Agent')) return r
+    if ((await $.store.get('disabled')) === true) return r
+    return { sections: [...r.sections, { id: 'model-router:delegate', text: DELEGATE, scope: 'session' as const }] }
   })
 
   on('command.run', { command: 'router' }, async ($, e) => {

@@ -61,3 +61,23 @@ test('nach /router off bleibt das Modell unveraendert', async ($, on) => {
   await step($, 't4', 'claude-opus-5-5')
   expect(sent).toEqual(['claude-opus-5-5'])
 })
+
+// Liefert die Abschnitts-IDs des Systemprompts fuer ein Modell und eine Tool-Liste
+const sections = async ($: Engine, model: string, tools: string[]) =>
+  (await $.prompt.compose({ model, promptModel: model, tools, surfaces: [], outputStyle: null, traits: [] })).sections.map(
+    s => s.id,
+  )
+
+test('Opus bekommt den Hinweis, Lesearbeit an Subagenten abzugeben', async ($, on) => {
+  engine(on, 'opus')
+  on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'x', scope: 'shared' as const }] }))
+  expect(await sections($, 'claude-opus-5-5', ['Agent', 'Read'])).toEqual(['intro', 'model-router:delegate'])
+  expect(await sections($, 'claude-sonnet-5-5', ['Agent', 'Read'])).toEqual(['intro'])
+  expect(await sections($, 'claude-opus-5-5', ['Read'])).toEqual(['intro'])
+})
+
+test('nach /router off gibt es keinen Hinweis', async ($, on) => {
+  engine(on, 'opus', { disabled: true })
+  on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'x', scope: 'shared' as const }] }))
+  expect(await sections($, 'claude-opus-5-5', ['Agent'])).toEqual(['intro'])
+})

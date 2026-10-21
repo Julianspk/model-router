@@ -81,8 +81,9 @@ Mit `!haiku`, `!sonnet` oder `!opus` am Anfang eines Prompts bestimmst du das Mo
    - `opus`: Architektur, Debugging mit unbekannter Ursache, Refactoring über viele Dateien, Sicherheit und unklare Anforderungen.
    - Im Zweifel wählt der Klassifikator die stärkere Stufe. Er sieht auch das Ende der letzten Antwort, damit kurze Zustimmungen wie „ja, mach das“ zur richtigen Aufgabe gezählt werden.
 2. Alle Modellanfragen dieses Turns laufen auf dem gewählten Modell, auch die Schritte mit Tool-Aufrufen.
-3. Automatisch wird nur herabgestuft. Das Modell, das du für die Session gewählt hast, ist die Obergrenze.
-4. Antwortet der Klassifikator nicht innerhalb von 8 Sekunden, bleibt das Modell unverändert.
+3. Läuft ein Turn auf Opus, behält Opus Planung und Entscheidungen, bekommt aber einen Hinweis im Systemprompt: reine Lesearbeit wie ein Jira-Ticket lesen, Code durchsuchen oder Logs sichten gibt es an einen Subagenten ab. Der Subagent wird wie jeder andere eingestuft und läuft meist auf Sonnet oder Haiku. Opus bekommt nur seine Zusammenfassung.
+4. Automatisch wird nur herabgestuft. Das Modell, das du für die Session gewählt hast, ist die Obergrenze.
+5. Antwortet der Klassifikator nicht innerhalb von 8 Sekunden, bleibt das Modell unverändert.
 
 ## Optionen
 
@@ -99,6 +100,7 @@ Die Optionen werden bei der Installation abgefragt und stehen danach in den Eins
 
 - Wechselt das Modell mitten in einer langen Session, liest das neue Modell den ganzen Verlauf ohne Prompt-Cache. Bei sehr langen Sessions kann das die Ersparnis auffressen.
 - Jeder Prompt kostet einen kurzen Haiku-Aufruf, etwa eine Sekunde Wartezeit.
+- Ein Subagent bringt seinen eigenen Systemprompt mit. Bei einem einzelnen kurzen Ticket ist die Ersparnis klein, bei viel Lesestoff groß, weil Opus nur die Zusammenfassung liest und mitschleppt.
 - Ein Agent-Aufruf, der ausdrücklich ein stärkeres Modell verlangt, kann heruntergestuft werden.
 - Die Einstufung ist eine Heuristik und liegt manchmal daneben. Dafür gibt es `!opus`, `!sonnet` und `!haiku`.
 
