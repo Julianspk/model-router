@@ -30,8 +30,6 @@ Ablauf bei der Installation:
 3. Die Optionen werden abgefragt. Die Standardwerte passen für die meisten Fälle.
 4. Danach steht `Installed model-router. Plugin is now active.` Die Mod ist sofort aktiv.
 
-Das Repository ist privat. Installieren können es nur Personen, die es auf GitHub lesen dürfen und deren Rechner schon eine Git-Anmeldung für github.com hat (SSH-Key, oder `gh auth login` und danach `gh auth setup-git`).
-
 Prüfen, ob die Mod läuft: `/router` eingeben. Die Antwort ist `Modell-Router ist an.`
 
 ## Benutzung
