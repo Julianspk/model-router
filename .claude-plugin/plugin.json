@@ -1,0 +1,31 @@
+{
+  "name": "model-router",
+  "version": "0.1.0",
+  "description": "Leitet einfache Aufgaben automatisch an guenstigere Modelle (Haiku, Sonnet) weiter",
+  "userConfig": {
+    "classifierModel": {
+      "type": "string",
+      "title": "Klassifikator-Modell",
+      "description": "Modell, das jede Aufgabe einstuft (Alias oder volle ID)",
+      "default": "haiku"
+    },
+    "haikuModel": {
+      "type": "string",
+      "title": "Haiku-Modell-ID",
+      "description": "Volle Modell-ID fuer die Stufe haiku",
+      "default": "claude-haiku-5-5"
+    },
+    "sonnetModel": {
+      "type": "string",
+      "title": "Sonnet-Modell-ID",
+      "description": "Volle Modell-ID fuer die Stufe sonnet",
+      "default": "claude-sonnet-5-5"
+    },
+    "opusModel": {
+      "type": "string",
+      "title": "Opus-Modell-ID",
+      "description": "Volle Modell-ID fuer die Stufe opus (nur fuer !opus)",
+      "default": "claude-opus-5-5"
+    }
+  }
+}
