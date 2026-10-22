@@ -1,4 +1,4 @@
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, SessionMessage } from 'claude-code'
 
 // Stufen von schwach nach stark; ein unbekanntes Modell (Opus, Fable, ...) gilt als staerkste
 const TIERS = ['haiku', 'sonnet', 'opus'] as const
@@ -17,6 +17,17 @@ sonnet: klar umrissene Standardarbeit. Jira-/Ticket-Eintraege lesen, anlegen, ko
 opus: echte Unsicherheit oder Tragweite. Architektur, Konzepte, Debugging mit unbekannter Ursache, Refactoring ueber viele Dateien, Sicherheit, Performance, Nebenlaeufigkeit, mehrdeutige Anforderungen, Planung groesserer Features.
 
 Ist die Aufgabe nur eine Zustimmung oder Rueckfrage ("ja", "mach das"), stufe die Arbeit ein, auf die sie sich bezieht.
+Im Zweifel die staerkere Stufe.`
+
+// Einstufung des naechsten Schritts mitten in einer Aufgabe: Es zaehlt, was jetzt zu tun ist, nicht die ganze Aufgabe
+const STEP_RUBRIC = `Du waehlst das guenstigste Claude-Modell fuer den NAECHSTEN Arbeitsschritt eines Assistenten mitten in einer Aufgabe.
+Antworte mit genau einem Wort: haiku, sonnet oder opus.
+
+haiku: nur weitergeben oder knapp formulieren, was schon feststeht. Ein Ergebnis wiedergeben, einen kurzen Text, Kommentar, eine Commit-Message oder Statusmeldung aus bekannten Fakten schreiben, einfache Befehle ausfuehren, formatieren.
+sonnet: Material beschaffen oder klar umrissen umsetzen. Tickets, Dateien, Seiten oder Code lesen und durchsuchen, recherchieren, Gefundenes zusammenfassen, eine klar beschriebene Aenderung ausfuehren, Tests schreiben.
+opus: denken und entscheiden. Das Gelesene auswerten, eine Ursache finden, planen, eine Loesung entwerfen, Risiken abwaegen, schwierige oder weitreichende Aenderungen, Ergebnisse pruefen.
+
+Beginnt die Aufgabe mit Lesen oder Nachschlagen, ist der erste Schritt sonnet oder haiku, auch wenn die Aufgabe als Ganzes schwer ist.
 Im Zweifel die staerkere Stufe.`
 
 // Opus behaelt die Fuehrung, gibt aber reine Lesearbeit an Subagenten ab; die stuft der Router guenstiger ein
@@ -46,6 +57,39 @@ export const classify = async (
   return r.text.toLowerCase().match(/haiku|sonnet|opus/)?.[0] as Tier | undefined
 }
 
+// Kurzfassung des letzten Schritts: was der Assistent aufgerufen hat und was zurueckkam
+export const recap = (messages: readonly SessionMessage[]): string => {
+  const last = [...messages].reverse().find(m => m.role === 'assistant' && m.toolUses.length > 0)
+  if (!last) return ''
+  const calls = last.toolUses
+    .slice(0, 4)
+    .map(u => `${u.tool} ${JSON.stringify(u.input).slice(0, 150)} -> ${(u.text ?? '').slice(0, 300)}`)
+  return `${last.text.slice(-300)}\n${calls.join('\n')}`.trim()
+}
+
+// Fragt nach der Stufe des naechsten Schritts; undefined heisst: Stufe bleibt, wie sie war
+export const classifyStep = async (
+  $: EngineInterface,
+  model: string,
+  task: string,
+  recent: string,
+  previous: string,
+): Promise<Tier | undefined> => {
+  const history = recent
+    ? `Zuletzt in diesem Turn:\n${recent}`
+    : `Das ist der erste Schritt.${previous ? ` Letzte Antwort des Assistenten (Ende):\n${previous.slice(-1500)}` : ''}`
+  const r = await $.model.complete({
+    model,
+    system: STEP_RUBRIC,
+    prompt: `Aufgabe des Nutzers:\n${task}\n\n${history}`.slice(0, 6000),
+    maxTokens: 10,
+    effort: 'low',
+    timeoutMs: 4000,
+  })
+  if (!r.isAnswered) return undefined
+  return r.text.toLowerCase().match(/haiku|sonnet|opus/)?.[0] as Tier | undefined
+}
+
 export const register: Register = (on, options) => {
   const models: Record<Tier, string> = {
     haiku: String(options.haikuModel),
@@ -53,9 +97,10 @@ export const register: Register = (on, options) => {
     opus: String(options.opusModel),
   }
   // ponytail: Modulvariablen, ein Hot-Reload mitten im Turn verliert nur diese eine Einstufung
-  const routes = new Map<string, { tier: Tier; isForced: boolean }>()
+  const routes = new Map<string, { task: string; tier?: Tier; isForced: boolean }>()
   let forced: Tier | undefined
   let lastAnswer = ''
+  let shown = ''
 
   // "!opus ..." am Anfang des Prompts erzwingt das Modell fuer diesen Turn, der Praefix wird entfernt
   on('prompt.submit', ($, e, next) => {
@@ -92,12 +137,12 @@ export const register: Register = (on, options) => {
 
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined && forced) {
-      routes.set(e.turnId, { tier: forced, isForced: true })
+      routes.set(e.turnId, { task: e.text, tier: forced, isForced: true })
       forced = undefined
     } else if (e.text.trim() !== '' && (await $.store.get('disabled')) !== true) {
-      // Nur der Hauptloop bekommt Kontext, ein Subagent-Prompt steht fuer sich
-      const tier = await classify($, String(options.classifierModel), e.text, e.agentId ? '' : lastAnswer)
-      if (tier) routes.set(e.turnId, { tier, isForced: false })
+      // Der Hauptloop wird vor jedem Schritt eingestuft (turn.step), ein Subagent einmal: sein Prompt nennt seine ganze Aufgabe
+      const tier = e.agentId ? await classify($, String(options.classifierModel), e.text, '') : undefined
+      routes.set(e.turnId, { task: e.text, tier, isForced: false })
     }
     return next(e)
   })
@@ -105,9 +150,16 @@ export const register: Register = (on, options) => {
   // Automatisch wird nur herabgestuft, ein erzwungenes Modell gilt auch nach oben
   on('turn.step', async function* ($, e, next) {
     const route = routes.get(e.turnId)
-    const isApplied = route && (route.isForced || TIERS.indexOf(route.tier) < rank(e.model))
-    const model = isApplied ? models[route.tier] : e.model
-    if (e.agentId === undefined && e.index === 0) {
+    if (route && !route.isForced && e.agentId === undefined) {
+      // Der erste Schritt hat noch keinen Verlauf; ohne Antwort des Klassifikators bleibt die letzte Stufe
+      const messages = e.index === 0 ? [] : await $.session.messages().catch(() => [])
+      const recent = Array.isArray(messages) ? recap(messages) : ''
+      route.tier = (await classifyStep($, String(options.classifierModel), route.task, recent, lastAnswer)) ?? route.tier
+    }
+    const isApplied = route?.tier && (route.isForced || TIERS.indexOf(route.tier) < rank(e.model))
+    const model = isApplied ? models[route.tier!] : e.model
+    if (e.agentId === undefined && model !== shown) {
+      shown = model
       $.ui.status(`Router: ${model}${route?.isForced ? ' (erzwungen)' : ''}`)
     }
     return yield* next({ ...e, model })

@@ -1,6 +1,6 @@
 {
   "name": "model-router",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Leitet einfache Aufgaben automatisch an guenstigere Modelle (Haiku, Sonnet) weiter",
   "userConfig": {
     "classifierModel": {

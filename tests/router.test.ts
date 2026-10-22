@@ -28,6 +28,62 @@ test('ein Jira-Ticket laeuft auf Sonnet statt Opus', async ($, on) => {
   expect(sent).toEqual(['claude-sonnet-5-5'])
 })
 
+// Antwortet je Aufruf mit der naechsten Stufe aus der Liste; `null` heisst: keine Antwort. Merkt sich die Prompts
+const scripted = (on: On, answers: (string | null)[]) => {
+  const prompts: string[] = []
+  const sent: string[] = []
+  mock.store(on)
+  on('model.complete', (_, e) => {
+    prompts.push(e.prompt)
+    const text = answers[prompts.length - 1]
+    return text === null || text === undefined
+      ? { value: { isAnswered: false as const, reason: 'aborted' as const, usage: USAGE } }
+      : { value: { isAnswered: true as const, text, usage: USAGE } }
+  })
+  on('session.messages', () => ({
+    value: [
+      { role: 'assistant' as const, text: '', toolUses: [{ tool_use_id: 'u1', tool: 'getJiraIssue', input: { key: 'EVT-1' }, text: 'Ticket: Login-Fehler' }] },
+    ],
+  }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.step', async function* (_, e) {
+    sent.push(e.model)
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: null }
+  })
+  return { prompts, sent }
+}
+
+test('im Hauptloop wechselt das Modell von Schritt zu Schritt', async ($, on) => {
+  const { prompts, sent } = scripted(on, ['sonnet', 'opus', 'sonnet', 'haiku'])
+  await $.turn.start({ turnId: 't7', text: 'Bearbeite EVT-1' })
+  for (const index of [0, 1, 2, 3]) {
+    for await (const _ of $.turn.step({ turnId: 't7', index, model: 'claude-opus-5-5', messageCount: 1 }));
+  }
+  expect(sent).toEqual(['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'])
+  // Der erste Schritt hat keinen Verlauf, die folgenden sehen, was der letzte Aufruf geliefert hat
+  expect(prompts[0]).toContain('erste Schritt')
+  expect(prompts[1]).toContain('Login-Fehler')
+})
+
+test('antwortet der Klassifikator nicht, bleibt die Stufe des Schritts davor', async ($, on) => {
+  const { sent } = scripted(on, ['sonnet', null])
+  await $.turn.start({ turnId: 't8', text: 'Bearbeite EVT-1' })
+  for (const index of [0, 1]) {
+    for await (const _ of $.turn.step({ turnId: 't8', index, model: 'claude-opus-5-5', messageCount: 1 }));
+  }
+  expect(sent).toEqual(['claude-sonnet-5-5', 'claude-sonnet-5-5'])
+})
+
+test('ein Subagent wird einmal beim Start eingestuft, nicht vor jedem Schritt', async ($, on) => {
+  const { prompts, sent } = scripted(on, ['opus', 'haiku', 'haiku'])
+  await $.turn.start({ turnId: 't9', text: 'Plane EVT-1', agentId: 'a1' })
+  for (const index of [0, 1, 2]) {
+    for await (const _ of $.turn.step({ turnId: 't9', index, model: 'claude-sonnet-5-5', messageCount: 1, agentId: 'a1' }));
+  }
+  expect(prompts).toHaveLength(1)
+  expect(sent).toEqual(['claude-sonnet-5-5', 'claude-sonnet-5-5', 'claude-sonnet-5-5'])
+})
+
 test('nie hochstufen: Haiku-Session bleibt bei Haiku', async ($, on) => {
   const sent = engine(on, 'opus')
   await $.turn.start({ turnId: 't2', text: 'Entwirf eine neue Architektur' })
