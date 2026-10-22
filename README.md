@@ -34,7 +34,7 @@ Prüfen, ob die Mod läuft: `/router` eingeben. Die Antwort ist `Modell-Router i
 
 ## Benutzung
 
-Du musst nichts tun. Schreib deine Prompts wie bisher, der Router entscheidet pro Prompt, welches Modell arbeitet. Welches Modell gewählt wurde, steht in der Statuszeile als `Router: <Modell>`.
+Du musst nichts tun. Schreib deine Prompts wie bisher, der Router entscheidet pro Arbeitsschritt, welches Modell arbeitet. Welches Modell gewählt wurde, steht in der Statuszeile als `Router: <Modell>`.
 
 Beispiele für die zu erwartende Einstufung:
 
@@ -75,15 +75,15 @@ Mit `!haiku`, `!sonnet` oder `!opus` am Anfang eines Prompts bestimmst du das Mo
 
 ## Wie der Router entscheidet
 
-1. Bei jedem neuen Prompt und jedem Start eines Subagenten stuft Haiku die Aufgabe als `haiku`, `sonnet` oder `opus` ein.
+1. Im Hauptgespräch stuft Haiku vor jedem einzelnen Modellaufruf den nächsten Arbeitsschritt ein, nicht erst den ganzen Prompt. Ein Auftrag wie „bearbeite das Ticket“ läuft so Schritt für Schritt: Lesen auf Sonnet oder Haiku, Auswerten und Entscheiden auf Opus, Recherche wieder auf Sonnet, ein kurzer Text auf Haiku. Haiku sieht dafür die Aufgabe und, was der letzte Schritt aufgerufen und zurückbekommen hat. Einen Subagenten stuft Haiku einmal beim Start ein, weil sein Prompt die ganze Aufgabe nennt. Die Stufen:
    - `haiku`: mechanische Aufgaben ohne Abwägung, etwa eine kurze Faktenfrage, umbenennen, formatieren oder einfache Befehle.
    - `sonnet`: klar umrissene Standardarbeit, etwa Jira-Tickets lesen, anlegen oder umsetzen, eine Funktion schreiben, Tests ergänzen, Doku oder ein Bugfix mit bekannter Ursache.
    - `opus`: Architektur, Debugging mit unbekannter Ursache, Refactoring über viele Dateien, Sicherheit und unklare Anforderungen.
    - Im Zweifel wählt der Klassifikator die stärkere Stufe. Er sieht auch das Ende der letzten Antwort, damit kurze Zustimmungen wie „ja, mach das“ zur richtigen Aufgabe gezählt werden.
-2. Alle Modellanfragen dieses Turns laufen auf dem gewählten Modell, auch die Schritte mit Tool-Aufrufen.
+2. Ein Schritt läuft auf der gewählten Stufe. Im Hauptgespräch kann sie sich im selben Turn ändern, bei einem Subagenten oder mit `!opus` bleibt sie für alle Schritte gleich.
 3. Läuft ein Turn auf Opus, behält Opus Planung und Entscheidungen, bekommt aber einen Hinweis im Systemprompt: reine Lesearbeit wie ein Jira-Ticket lesen, Code durchsuchen oder Logs sichten gibt es an einen Subagenten ab. Der Subagent wird wie jeder andere eingestuft und läuft meist auf Sonnet oder Haiku. Opus bekommt nur seine Zusammenfassung.
 4. Automatisch wird nur herabgestuft. Das Modell, das du für die Session gewählt hast, ist die Obergrenze.
-5. Antwortet der Klassifikator nicht innerhalb von 8 Sekunden, bleibt das Modell unverändert.
+5. Antwortet der Klassifikator nicht (Subagent: 8 Sekunden, Schritt: 4 Sekunden), bleibt die Stufe des Schritts davor, beim ersten Schritt das Modell der Session.
 
 ## Optionen
 
@@ -99,7 +99,9 @@ Die Optionen werden bei der Installation abgefragt und stehen danach in den Eins
 ## Grenzen
 
 - Wechselt das Modell mitten in einer langen Session, liest das neue Modell den ganzen Verlauf ohne Prompt-Cache. Bei sehr langen Sessions kann das die Ersparnis auffressen.
-- Jeder Prompt kostet einen kurzen Haiku-Aufruf, etwa eine Sekunde Wartezeit.
+- Jeder Schritt im Hauptgespräch kostet einen kurzen Haiku-Aufruf, etwa eine Sekunde Wartezeit. Ein Auftrag mit 20 Tool-Aufrufen wartet also gut 20 Sekunden mehr.
+- Jeder Modellwechsel mitten im Turn lässt das neue Modell den ganzen bisherigen Verlauf ohne Prompt-Cache lesen. Je länger der Verlauf, desto eher frisst das die Ersparnis auf; bei wechselnden Stufen in kurzer Folge kann es teurer werden als ein durchgehendes Opus.
+- Der Verlauf enthält Denkblöcke des vorherigen Modells. Ob jedes Modell sie nach einem Wechsel anstandslos annimmt, ist noch nicht an einer langen Session erprobt; bei Fehlern nach einem Wechsel hilft `/router off`.
 - Ein Subagent bringt seinen eigenen Systemprompt mit. Bei einem einzelnen kurzen Ticket ist die Ersparnis klein, bei viel Lesestoff groß, weil Opus nur die Zusammenfassung liest und mitschleppt.
 - Ein Agent-Aufruf, der ausdrücklich ein stärkeres Modell verlangt, kann heruntergestuft werden.
 - Die Einstufung ist eine Heuristik und liegt manchmal daneben. Dafür gibt es `!opus`, `!sonnet` und `!haiku`.
